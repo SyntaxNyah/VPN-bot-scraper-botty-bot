@@ -68,7 +68,7 @@ async def run_refresh() -> tuple[discord.Embed, discord.Embed,
     # Attach files up to Discord's default 25 MiB bot attachment cap.
     files: list[discord.File] = []
     max_bytes = 24 * 1024 * 1024
-    for key in ("full", "asns", "cidrs"):
+    for key in ("full", "raw_ips", "asns", "cidrs"):
         p = paths.get(key)
         if p and p.exists() and p.stat().st_size <= max_bytes:
             files.append(discord.File(str(p), filename=p.name))

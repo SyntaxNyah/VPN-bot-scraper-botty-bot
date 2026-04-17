@@ -18,8 +18,9 @@ import aiohttp
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "VPN-Blocker-Bot/1.0 (+https://github.com/)"
-REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=45)
+USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=120, connect=20, sock_read=90)
 MAX_CIDR_EXPAND_PREFIX = 24  # only expand /24 or smaller to individual IPs
 
 IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -42,10 +43,27 @@ class FeedResult:
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-async def _fetch_text(session: aiohttp.ClientSession, url: str) -> str:
-    async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
-        resp.raise_for_status()
-        return await resp.text(errors="replace")
+async def _fetch_text(session: aiohttp.ClientSession, url: str,
+                      retries: int = 2) -> str:
+    """GET with one automatic retry on transient timeouts or 5xx."""
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
+                if resp.status >= 500 and attempt < retries:
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history,
+                        status=resp.status, message=resp.reason or "")
+                resp.raise_for_status()
+                return await resp.text(errors="replace")
+        except (asyncio.TimeoutError, aiohttp.ClientConnectionError,
+                aiohttp.ClientResponseError) as e:
+            last = e
+            if attempt >= retries:
+                break
+            await asyncio.sleep(2 ** attempt)
+    assert last is not None
+    raise last
 
 
 def _valid_public_ip(addr: str) -> bool:
@@ -409,9 +427,18 @@ async def scrape_mullvad(session: aiohttp.ClientSession) -> FeedResult:
 
 
 async def scrape_protonvpn(session: aiohttp.ClientSession) -> FeedResult:
-    """ProtonVPN publishes its logical server list as JSON."""
-    url = "https://api.protonvpn.ch/vpn/logicals"
-    async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
+    """ProtonVPN publishes its logical server list as JSON.
+
+    The endpoint requires a few app-version headers or it returns 400.
+    """
+    url = "https://api.protonmail.ch/vpn/logicals"
+    headers = {
+        "x-pm-appversion": "LinuxVPN_4.0.0",
+        "x-pm-apiversion": "3",
+        "Accept": "application/vnd.protonmail.v1+json",
+    }
+    async with session.get(url, headers=headers,
+                           timeout=REQUEST_TIMEOUT) as resp:
         resp.raise_for_status()
         data = await resp.json(content_type=None)
     ips: set[str] = set()
@@ -483,7 +510,6 @@ SCRAPERS: dict[str, ScraperFn] = {
     "x4bnet_datacenter": scrape_x4bnet_datacenter,
     "mullvad": scrape_mullvad,
     "protonvpn": scrape_protonvpn,
-    "fissionrelays_vpn": scrape_fissionrelays_vpn,
     # Tor
     "tor": scrape_tor_exits,
     "dan_tor": scrape_dan_tor,
@@ -539,8 +565,14 @@ async def run_all(disabled: Iterable[str] = ()) -> list[FeedResult]:
     disabled_set = {d.lower() for d in disabled}
     enabled = [(name, fn) for name, fn in SCRAPERS.items() if name not in disabled_set]
 
-    headers = {"User-Agent": USER_AGENT, "Accept": "text/plain, */*"}
-    connector = aiohttp.TCPConnector(limit=10, ttl_dns_cache=300)
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/plain, text/csv, application/json, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    connector = aiohttp.TCPConnector(
+        limit=64, limit_per_host=4, ttl_dns_cache=300,
+    )
     async with aiohttp.ClientSession(headers=headers, connector=connector) as session:
         async def _safe(name: str, fn: ScraperFn) -> FeedResult:
             try:

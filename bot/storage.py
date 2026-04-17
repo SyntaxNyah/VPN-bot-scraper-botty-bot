@@ -69,6 +69,7 @@ def write_all(
     cidr_path = base.with_name(base.name + ".cidr.txt")
     full_path = base.with_name(base.name + "_full.txt")
     asn_path = base.with_name("asns.txt")
+    raw_path = base.with_name("ips.txt")
 
     ts = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     sorted_ip_lines = _sorted_ips(ips)
@@ -83,8 +84,11 @@ def write_all(
         "",
     ]
 
-    # 1) flat IP list
+    # 1) flat IP list (with header)
     _atomic_write(ip_path, "\n".join(header + sorted_ip_lines) + "\n")
+
+    # 1b) raw ips.txt — bare IPs, one per line, no comments, nothing else
+    _atomic_write(raw_path, "\n".join(sorted_ip_lines) + ("\n" if sorted_ip_lines else ""))
 
     # 2) CIDR list
     _atomic_write(cidr_path, "\n".join(header + sorted_cidrs) + "\n")
@@ -117,6 +121,7 @@ def write_all(
 
     return {
         "ips": ip_path,
+        "raw_ips": raw_path,
         "cidrs": cidr_path,
         "full": full_path,
         "asns": asn_path,
