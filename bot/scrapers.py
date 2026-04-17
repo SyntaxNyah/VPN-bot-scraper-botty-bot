@@ -239,6 +239,237 @@ async def scrape_cinsscore(session: aiohttp.ClientSession) -> FeedResult:
     return FeedResult("cinsscore", ips=ips, cidrs=cidrs)
 
 
+# --- abuse.ch family ------------------------------------------------------
+
+async def scrape_feodotracker(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("feodotracker", ips=ips, cidrs=cidrs)
+
+
+async def scrape_sslbl(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://sslbl.abuse.ch/blacklist/sslipblacklist.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("sslbl", ips=ips, cidrs=cidrs)
+
+
+async def scrape_threatfox(session: aiohttp.ClientSession) -> FeedResult:
+    """ThreatFox recent IP:port IOCs (CSV). Column 3 is the IOC."""
+    url = "https://threatfox.abuse.ch/export/csv/ip-port/recent/"
+    text = await _fetch_text(session, url)
+    ips: set[str] = set()
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip().strip('"') for p in line.split(",")]
+        if len(parts) < 4:
+            continue
+        ioc = parts[2]
+        bare = ioc.split(":")[0]
+        if _valid_public_ip(bare):
+            ips.add(bare)
+    return FeedResult("threatfox", ips=ips)
+
+
+# --- attacker / scanner feeds --------------------------------------------
+
+async def scrape_greensnow(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://blocklist.greensnow.co/greensnow.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("greensnow", ips=ips, cidrs=cidrs)
+
+
+async def scrape_dshield(session: aiohttp.ClientSession) -> FeedResult:
+    """SANS ISC top attacking /24s — returns CIDRs, mostly."""
+    url = "https://www.dshield.org/block.txt"
+    text = await _fetch_text(session, url)
+    ips: set[str] = set()
+    cidrs: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.lower().startswith("start"):
+            continue
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        start, _end, netmask = fields[0], fields[1], fields[2]
+        if netmask.isdigit() and _valid_public_ip(start):
+            _ingest_cidr(f"{start}/{netmask}", ips, cidrs)
+    return FeedResult("dshield", ips=ips, cidrs=cidrs)
+
+
+async def scrape_myip_ms(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://myip.ms/files/blacklist/general/latest_blacklist.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("myip_ms", ips=ips, cidrs=cidrs)
+
+
+async def scrape_alienvault(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://reputation.alienvault.com/reputation.generic"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("alienvault", ips=ips, cidrs=cidrs)
+
+
+# --- stamparm family ------------------------------------------------------
+
+async def scrape_ipsum_l2(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://raw.githubusercontent.com/stamparm/ipsum/master/levels/2.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("ipsum_l2", ips=ips, cidrs=cidrs)
+
+
+async def scrape_maltrail_mass_scanner(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://raw.githubusercontent.com/stamparm/maltrail/master/trails/static/mass_scanner.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("maltrail_mass_scanner", ips=ips, cidrs=cidrs)
+
+
+async def scrape_maltrail_bruteforcer(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://raw.githubusercontent.com/stamparm/maltrail/master/trails/static/bruteforcer.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("maltrail_bruteforcer", ips=ips, cidrs=cidrs)
+
+
+# --- blocklistproject -----------------------------------------------------
+
+async def scrape_blp_abuse(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://raw.githubusercontent.com/blocklistproject/Lists/master/abuse-ips.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("blp_abuse", ips=ips, cidrs=cidrs)
+
+
+async def scrape_blp_ransomware(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://raw.githubusercontent.com/blocklistproject/Lists/master/ransomware-ips.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("blp_ransomware", ips=ips, cidrs=cidrs)
+
+
+# --- open-proxy aggregators ----------------------------------------------
+
+async def _scrape_thespeedx(session: aiohttp.ClientSession, proto: str) -> FeedResult:
+    url = f"https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/{proto}.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult(f"thespeedx_{proto}", ips=ips, cidrs=cidrs)
+
+
+async def scrape_thespeedx_http(s): return await _scrape_thespeedx(s, "http")
+async def scrape_thespeedx_socks4(s): return await _scrape_thespeedx(s, "socks4")
+async def scrape_thespeedx_socks5(s): return await _scrape_thespeedx(s, "socks5")
+
+
+async def _scrape_monosans(session: aiohttp.ClientSession, proto: str) -> FeedResult:
+    url = f"https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/{proto}.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult(f"monosans_{proto}", ips=ips, cidrs=cidrs)
+
+
+async def scrape_monosans_http(s): return await _scrape_monosans(s, "http")
+async def scrape_monosans_socks4(s): return await _scrape_monosans(s, "socks4")
+async def scrape_monosans_socks5(s): return await _scrape_monosans(s, "socks5")
+
+
+async def _scrape_roosterkid(session: aiohttp.ClientSession, proto: str) -> FeedResult:
+    url = f"https://raw.githubusercontent.com/roosterkid/openproxylist/main/{proto}_RAW.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult(f"roosterkid_{proto.lower()}", ips=ips, cidrs=cidrs)
+
+
+async def scrape_roosterkid_https(s): return await _scrape_roosterkid(s, "HTTPS")
+async def scrape_roosterkid_socks4(s): return await _scrape_roosterkid(s, "SOCKS4")
+async def scrape_roosterkid_socks5(s): return await _scrape_roosterkid(s, "SOCKS5")
+
+
+# --- commercial VPN public APIs ------------------------------------------
+
+async def scrape_mullvad(session: aiohttp.ClientSession) -> FeedResult:
+    """Mullvad publishes its full relay list as JSON."""
+    url = "https://api.mullvad.net/www/relays/all/"
+    async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
+        resp.raise_for_status()
+        data = await resp.json(content_type=None)
+    ips: set[str] = set()
+    for relay in data if isinstance(data, list) else []:
+        ip = relay.get("ipv4_addr_in") if isinstance(relay, dict) else None
+        if ip and _valid_public_ip(ip):
+            ips.add(ip)
+    return FeedResult("mullvad", ips=ips)
+
+
+async def scrape_protonvpn(session: aiohttp.ClientSession) -> FeedResult:
+    """ProtonVPN publishes its logical server list as JSON."""
+    url = "https://api.protonvpn.ch/vpn/logicals"
+    async with session.get(url, timeout=REQUEST_TIMEOUT) as resp:
+        resp.raise_for_status()
+        data = await resp.json(content_type=None)
+    ips: set[str] = set()
+    for logical in (data or {}).get("LogicalServers", []):
+        for server in logical.get("Servers", []) or []:
+            for key in ("EntryIP", "ExitIP"):
+                ip = server.get(key)
+                if ip and _valid_public_ip(ip):
+                    ips.add(ip)
+    return FeedResult("protonvpn", ips=ips)
+
+
+# --- more community lists -------------------------------------------------
+
+async def scrape_duggytuxy_botnets(session: aiohttp.ClientSession) -> FeedResult:
+    url = ("https://raw.githubusercontent.com/duggytuxy/malicious_ip_addresses/"
+           "main/botnets_zombies_scanner_spam_ips.txt")
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("duggytuxy_botnets", ips=ips, cidrs=cidrs)
+
+
+async def scrape_c2_tracker(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://raw.githubusercontent.com/montysecurity/C2-Tracker/main/data/all.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("c2_tracker", ips=ips, cidrs=cidrs)
+
+
+async def scrape_cruzit(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://iplists.firehol.org/files/cruzit_web_attacks.ipset"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("cruzit", ips=ips, cidrs=cidrs)
+
+
+async def scrape_bruteforce_rules(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://iplists.firehol.org/files/bruteforceblocker.ipset"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("bruteforceblocker", ips=ips, cidrs=cidrs)
+
+
+async def scrape_nullsecure(session: aiohttp.ClientSession) -> FeedResult:
+    url = ("https://raw.githubusercontent.com/NullSecure/All-Proxies-Aggregator/"
+           "refs/heads/main/http.txt")
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("nullsecure", ips=ips, cidrs=cidrs)
+
+
+async def scrape_fissionrelays_vpn(session: aiohttp.ClientSession) -> FeedResult:
+    url = "https://lists.fissionrelays.net/vpn/ip/all.txt"
+    text = await _fetch_text(session, url)
+    ips, cidrs = _parse_plain_list(text)
+    return FeedResult("fissionrelays_vpn", ips=ips, cidrs=cidrs)
+
+
 # ---------------------------------------------------------------------------
 # Registry + runner
 # ---------------------------------------------------------------------------
@@ -246,24 +477,61 @@ async def scrape_cinsscore(session: aiohttp.ClientSession) -> FeedResult:
 ScraperFn = Callable[[aiohttp.ClientSession], "asyncio.Future[FeedResult]"]
 
 SCRAPERS: dict[str, ScraperFn] = {
+    # VPN / datacenter
     "vpngate": scrape_vpngate,
     "x4bnet_vpn": scrape_x4bnet_vpn,
     "x4bnet_datacenter": scrape_x4bnet_datacenter,
+    "mullvad": scrape_mullvad,
+    "protonvpn": scrape_protonvpn,
+    "fissionrelays_vpn": scrape_fissionrelays_vpn,
+    # Tor
+    "tor": scrape_tor_exits,
+    "dan_tor": scrape_dan_tor,
+    # FireHOL aggregates
     "firehol_anonymous": scrape_firehol_anonymous,
     "firehol_proxies": scrape_firehol_proxies,
     "firehol_level1": scrape_firehol_level1,
-    "tor": scrape_tor_exits,
-    "dan_tor": scrape_dan_tor,
+    "cruzit": scrape_cruzit,
+    "bruteforceblocker": scrape_bruteforce_rules,
+    # Open proxies
     "proxyscrape_http": scrape_proxyscrape_http,
     "proxyscrape_socks4": scrape_proxyscrape_socks4,
     "proxyscrape_socks5": scrape_proxyscrape_socks5,
+    "thespeedx_http": scrape_thespeedx_http,
+    "thespeedx_socks4": scrape_thespeedx_socks4,
+    "thespeedx_socks5": scrape_thespeedx_socks5,
+    "monosans_http": scrape_monosans_http,
+    "monosans_socks4": scrape_monosans_socks4,
+    "monosans_socks5": scrape_monosans_socks5,
+    "roosterkid_https": scrape_roosterkid_https,
+    "roosterkid_socks4": scrape_roosterkid_socks4,
+    "roosterkid_socks5": scrape_roosterkid_socks5,
+    "nullsecure": scrape_nullsecure,
+    # Attacker / brute-force / abuse
     "blocklist_de": scrape_blocklist_de,
-    "ipsum_l3": scrape_ipsum,
-    "et_compromised": scrape_et_compromised,
-    "spamhaus_drop": scrape_spamhaus_drop,
-    "spamhaus_edrop": scrape_spamhaus_edrop,
+    "greensnow": scrape_greensnow,
+    "dshield": scrape_dshield,
+    "myip_ms": scrape_myip_ms,
+    "alienvault": scrape_alienvault,
     "binarydefense": scrape_binarydefense,
     "cinsscore": scrape_cinsscore,
+    "et_compromised": scrape_et_compromised,
+    "duggytuxy_botnets": scrape_duggytuxy_botnets,
+    # Malware / C2
+    "feodotracker": scrape_feodotracker,
+    "sslbl": scrape_sslbl,
+    "threatfox": scrape_threatfox,
+    "c2_tracker": scrape_c2_tracker,
+    # Aggregated / multi-source
+    "ipsum_l3": scrape_ipsum,
+    "ipsum_l2": scrape_ipsum_l2,
+    "maltrail_mass_scanner": scrape_maltrail_mass_scanner,
+    "maltrail_bruteforcer": scrape_maltrail_bruteforcer,
+    "blp_abuse": scrape_blp_abuse,
+    "blp_ransomware": scrape_blp_ransomware,
+    # Spam / hijacked
+    "spamhaus_drop": scrape_spamhaus_drop,
+    "spamhaus_edrop": scrape_spamhaus_edrop,
 }
 
 

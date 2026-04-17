@@ -4,29 +4,38 @@ The ultimate free VPN / proxy / abuse IP scraper, running as a Discord bot.
 
 Every ~90 minutes (configurable) it:
 
-1. Scrapes **18+ free threat-intel feeds** in parallel.
+1. Scrapes **47 free threat-intel feeds** in parallel.
 2. Dedupes & validates every IPv4 (rejects RFC1918, loopback, multicast, etc.).
-3. Writes a flat `blocklist.txt` (one IP per line) plus `blocklist.txt.cidr.txt`
-   for larger CIDR ranges — drop either into `iptables`, `ipset`, Cloudflare
-   WAF, fail2ban, pfSense, Nginx `deny`, etc.
-4. Enriches a sample of the IPs with **Team Cymru bulk whois** to rank the
-   **most abused ASNs**.
-5. Posts two embeds to your Discord channel: a refresh summary + the top-10
-   abused ASNs. Files are attached when small enough.
+3. Enriches a sample of the IPs with **Team Cymru bulk whois** to rank the
+   most abused ASNs.
+4. Writes **four files** to disk:
+    - `blocklist.txt` — flat sorted IPs, one per line.
+    - `blocklist.cidr.txt` — CIDR blocks too large to expand.
+    - `blocklist_full.txt` — **mega-dump**: ASN abuse ranking header, then CIDRs,
+      then every IP.
+    - `asns.txt` — top 250 abused ASNs with country + hit-count + percentage.
+5. Posts two embeds to your Discord channel (refresh summary + top-10 ASNs)
+   and attaches the dump files (up to 25 MiB per file, Discord's bot cap).
 
-## Feeds
+## Feeds (47)
 
-| Category | Source |
+| Category | Sources |
 |---|---|
 | Free VPN servers | VPN Gate public CSV |
-| Commercial VPN ranges | X4BNet (NordVPN, ExpressVPN, PIA, Surfshark, etc.) |
+| Commercial VPN public APIs | Mullvad, ProtonVPN, Fission Relays |
+| Commercial VPN ranges | X4BNet (NordVPN, ExpressVPN, PIA, Surfshark, CyberGhost…) |
 | Datacenter ranges | X4BNet datacenter list |
-| Aggregated anonymous/proxies | FireHOL `firehol_anonymous`, `firehol_proxies`, `firehol_level1` |
 | Tor exits | `check.torproject.org` bulk list, `dan.me.uk` |
-| Open proxies | ProxyScrape HTTP / SOCKS4 / SOCKS5 |
-| Brute-force / abuse | blocklist.de, Binary Defense, CINS Army |
-| Compromised hosts | Emerging Threats, stamparm/ipsum (level 3+) |
-| Spam / hijacked ranges | Spamhaus DROP, EDROP |
+| FireHOL aggregates | `firehol_anonymous`, `firehol_proxies`, `firehol_level1`, `cruzit`, `bruteforceblocker` |
+| Open proxies — ProxyScrape | HTTP, SOCKS4, SOCKS5 |
+| Open proxies — TheSpeedX | HTTP, SOCKS4, SOCKS5 |
+| Open proxies — MonoSans | HTTP, SOCKS4, SOCKS5 |
+| Open proxies — Roosterkid | HTTPS, SOCKS4, SOCKS5 |
+| Open proxies — NullSecure | aggregated HTTP list |
+| Brute-force / attackers | blocklist.de, GreenSnow, DShield, MyIP.ms, AlienVault reputation, Binary Defense, CINS Army, Emerging Threats, duggytuxy botnets |
+| Malware / C2 | abuse.ch Feodo Tracker, SSLBL, ThreatFox, montysecurity C2-Tracker |
+| Aggregated multi-source | IPsum level 2 + 3, Maltrail mass-scanner + bruteforcer, BlocklistProject abuse + ransomware |
+| Spam / hijacked | Spamhaus DROP, EDROP |
 
 All sources are free and require no API key.
 
@@ -67,7 +76,7 @@ All via environment variables / `.env`:
 | `DISCORD_TOKEN` | — | Required. |
 | `DISCORD_CHANNEL_ID` | — | Required. |
 | `REFRESH_MINUTES` | `90` | Min 30, to respect feed publishers. |
-| `BLOCKLIST_PATH` | `blocklist.txt` | Flat-list output path. |
+| `BLOCKLIST_PATH` | `blocklist.txt` | Base path; the other three files are written alongside it. |
 | `DISABLED_FEEDS` | — | Comma-separated feed names to skip, e.g. `tor,dan_tor`. |
 
 Valid feed names match the keys in `bot/scrapers.py::SCRAPERS`.

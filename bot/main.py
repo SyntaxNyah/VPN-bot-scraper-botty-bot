@@ -41,26 +41,36 @@ async def run_refresh() -> tuple[discord.Embed, discord.Embed,
         all_cidrs |= r.cidrs
         per_feed_counts[r.name] = r.count
 
-    ip_path, cidr_path = storage.write_blocklist(
-        CONFIG.blocklist_path, all_ips, all_cidrs, per_feed_counts
-    )
-    log.info("wrote %d IPs to %s, %d CIDRs to %s",
-             len(all_ips), ip_path, len(all_cidrs), cidr_path)
-
     enriched = await asn_mod.enrich(all_ips)
-    ranked = asn_mod.rank_asns(enriched, top=10)
+    ranked_full = asn_mod.rank_asns(enriched, top=None)
+    ranked_top = ranked_full[:10]
     log.info("enriched %d/%d IPs via Cymru; top ASN: %s",
              len(enriched), len(all_ips),
-             ranked[0][0].name if ranked else "n/a")
+             ranked_top[0][0].name if ranked_top else "n/a")
+
+    paths = storage.write_all(
+        CONFIG.blocklist_path,
+        all_ips,
+        all_cidrs,
+        per_feed_counts,
+        ranked_full,
+        asn_sample_size=len(enriched),
+    )
+    log.info("wrote %s",
+             ", ".join(f"{k}={v.stat().st_size/1024:.0f}KiB"
+                       for k, v in paths.items() if v.exists()))
 
     duration = time.monotonic() - t0
     summary = build_summary_embed(results, len(all_ips), len(all_cidrs),
                                   duration)
-    asn_embed = build_asn_embed(ranked, sample_size=len(enriched))
+    asn_embed = build_asn_embed(ranked_top, sample_size=len(enriched))
 
+    # Attach files up to Discord's default 25 MiB bot attachment cap.
     files: list[discord.File] = []
-    for p in (ip_path, cidr_path):
-        if p.exists() and p.stat().st_size <= 7 * 1024 * 1024:
+    max_bytes = 24 * 1024 * 1024
+    for key in ("full", "asns", "cidrs"):
+        p = paths.get(key)
+        if p and p.exists() and p.stat().st_size <= max_bytes:
             files.append(discord.File(str(p), filename=p.name))
     return summary, asn_embed, files
 

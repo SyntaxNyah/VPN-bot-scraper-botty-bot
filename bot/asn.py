@@ -88,9 +88,12 @@ async def enrich(ips: set[str]) -> dict[str, AsnInfo]:
     return merged
 
 
-def rank_asns(enriched: dict[str, AsnInfo], top: int = 10
+def rank_asns(enriched: dict[str, AsnInfo], top: int | None = 10
               ) -> list[tuple[AsnInfo, int]]:
-    """Return [(AsnInfo, hit_count), ...] sorted by hit count desc."""
+    """Return [(AsnInfo, hit_count), ...] sorted by hit count desc.
+
+    Pass top=None to get the full ranking.
+    """
     counter: Counter[int] = Counter()
     labels: dict[int, AsnInfo] = {}
     for info in enriched.values():
